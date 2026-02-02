@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.db
+backend/client_secret.json
+backend/__pycache__/
+backend/app/__pycache__/
+backend/app/routers/__pycache__/
+backend/app/services/__pycache__/
+__pycache__/
+*.pyc
+.env
