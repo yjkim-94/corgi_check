@@ -22,12 +22,21 @@ export const api = {
       }),
   },
   status: {
-    current: () => request<any[]>('/status/current'),
-    update: (memberId: number, data: any) =>
-      request('/status/' + memberId, {
+    current: (weekStart?: string) =>
+      request<any[]>('/status/current' + (weekStart ? `?week_start=${weekStart}` : '')),
+    update: (memberId: number, data: {
+      status: string;
+      exclude_reason?: string | null;
+      exclude_reason_detail?: string | null;
+      consecutive_weeks?: number;
+      week_start?: string | null;
+    }) =>
+      request<any>('/status/' + memberId, {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
+    getExcludeEnd: (memberId: number) =>
+      request<{ last_week_label: string | null }>('/status/' + memberId + '/exclude-end'),
   },
   history: {
     weeks: () => request<string[]>('/history/weeks'),
@@ -45,6 +54,8 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
+    return: (id: number) =>
+      request('/members/' + id + '/return', { method: 'PUT' }),
     remove: (id: number) =>
       request('/members/' + id, { method: 'DELETE' }),
   },
@@ -73,6 +84,11 @@ export const api = {
       request<any>('/admin/mid-settlement', {
         method: 'POST',
         body: JSON.stringify({ week_start: weekStart }),
+      }),
+    reset: (password: string) =>
+      request<{ success: boolean }>('/admin/reset', {
+        method: 'POST',
+        body: JSON.stringify({ password }),
       }),
   },
 };

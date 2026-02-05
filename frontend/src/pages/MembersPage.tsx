@@ -65,6 +65,12 @@ export default function MembersPage() {
     load();
   };
 
+  const handleReturn = async (m: MemberData) => {
+    if (!confirm(`${m.name} 멤버를 복귀 처리하시겠습니까?`)) return;
+    await api.members.return(m.id);
+    load();
+  };
+
   const handleDelete = async (m: MemberData) => {
     if (!confirm(`${m.name} 멤버를 완전히 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) return;
     await api.members.remove(m.id);
@@ -118,6 +124,8 @@ export default function MembersPage() {
               <th className="text-left py-2 px-3">이름</th>
               <th className="text-left py-2 px-3">생년</th>
               <th className="text-left py-2 px-3">상태</th>
+              <th className="text-left py-2 px-3">탈퇴이력</th>
+              <th className="text-left py-2 px-3">사유</th>
               <th className="text-left py-2 px-3">관리</th>
             </tr>
           </thead>
@@ -130,13 +138,21 @@ export default function MembersPage() {
                   {m.is_active ? (
                     <span className="text-green-600 text-sm">활동</span>
                   ) : (
-                    <span className="text-red-500 text-sm">탈퇴 ({m.left_date})</span>
+                    <span className="text-red-500 text-sm">탈퇴</span>
                   )}
+                </td>
+                <td className="py-2 px-3 text-gray-500 text-sm">
+                  {m.left_date || '-'}
+                </td>
+                <td className="py-2 px-3 text-gray-500 text-sm">
+                  {m.left_reason || '-'}
                 </td>
                 <td className="py-2 px-3 flex gap-2">
                   <button onClick={() => openEdit(m)} className="text-sm text-corgi hover:underline">수정</button>
-                  {m.is_active && (
+                  {m.is_active ? (
                     <button onClick={() => setShowLeave(m)} className="text-sm text-red-500 hover:underline">탈퇴</button>
+                  ) : (
+                    <button onClick={() => handleReturn(m)} className="text-sm text-green-600 hover:underline">복귀</button>
                   )}
                   <button onClick={() => handleDelete(m)} className="text-sm text-gray-400 hover:text-gray-700 hover:underline">삭제</button>
                 </td>
@@ -155,14 +171,22 @@ export default function MembersPage() {
               {m.is_active ? (
                 <span className="text-green-600 text-xs">활동</span>
               ) : (
-                <span className="text-red-500 text-xs">탈퇴 ({m.left_date})</span>
+                <span className="text-red-500 text-xs">탈퇴</span>
               )}
             </div>
-            <p className="text-xs text-gray-400 mb-3">{m.birth_date ? `${m.birth_date}년` : '-'}</p>
-            <div className="flex gap-3">
+            <p className="text-xs text-gray-400 mb-1">{m.birth_date ? `${m.birth_date}년` : '-'}</p>
+            {m.left_date && (
+              <p className="text-xs text-gray-500 mb-1">탈퇴이력: {m.left_date}</p>
+            )}
+            {m.left_reason && (
+              <p className="text-xs text-gray-500 mb-1">사유: {m.left_reason}</p>
+            )}
+            <div className="flex gap-3 mt-3">
               <button onClick={() => openEdit(m)} className="text-sm text-corgi hover:underline">수정</button>
-              {m.is_active && (
+              {m.is_active ? (
                 <button onClick={() => setShowLeave(m)} className="text-sm text-red-500 hover:underline">탈퇴</button>
+              ) : (
+                <button onClick={() => handleReturn(m)} className="text-sm text-green-600 hover:underline">복귀</button>
               )}
               <button onClick={() => handleDelete(m)} className="text-sm text-gray-400 hover:text-gray-700 hover:underline">삭제</button>
             </div>

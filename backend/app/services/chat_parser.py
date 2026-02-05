@@ -51,6 +51,11 @@ def parse_chat(
             if end_date and line_date > end_date:
                 continue
             nickname = match.group(4).strip()
+
+            # 닉네임이 "."인 경우 관리자(94김용진)로 매핑
+            if nickname == ".":
+                nickname = "헬톡94김용진_4"
+
             count = int(match.group(5))
             photo_counts[nickname] = photo_counts.get(nickname, 0) + count
 
@@ -103,17 +108,34 @@ def build_result(photo_counts: dict, members: list, weekly_statuses: dict = None
         birth_prefix = extract_birth_prefix(nickname)
         member = member_name_map.get(name)
 
+        # 활동 중인 멤버만 집계
+        if not member or not member.is_active:
+            continue
+
         if not birth_prefix and member:
             birth_prefix = get_birth_prefix_from_date(member.birth_date)
 
         ws = weekly_statuses.get(member.id) if member else None
-        status = "injeung" if count >= 4 else "fine"
-        exclude_reason = None
-        exclude_reason_detail = None
+
+        # 상태 결정 로직
         if ws and ws.status == "exclude":
             status = "exclude"
             exclude_reason = ws.exclude_reason
             exclude_reason_detail = ws.exclude_reason_detail
+        elif ws and ws.status == "fine":
+            # 수동으로 벌금 처리된 경우
+            status = "fine"
+            exclude_reason = None
+            exclude_reason_detail = None
+        elif count >= 4:
+            status = "injeung"
+            exclude_reason = None
+            exclude_reason_detail = None
+        else:
+            # 사진 부족 (벌점 대상)
+            status = "penalty"
+            exclude_reason = None
+            exclude_reason_detail = None
 
         result = {
             "nickname": nickname,
@@ -133,13 +155,22 @@ def build_result(photo_counts: dict, members: list, weekly_statuses: dict = None
         if member.id not in matched_member_ids and member.is_active:
             birth_prefix = get_birth_prefix_from_date(member.birth_date)
             ws = weekly_statuses.get(member.id)
-            status = "fine"
-            exclude_reason = None
-            exclude_reason_detail = None
+
+            # 상태 결정
             if ws and ws.status == "exclude":
                 status = "exclude"
                 exclude_reason = ws.exclude_reason
                 exclude_reason_detail = ws.exclude_reason_detail
+            elif ws and ws.status == "fine":
+                # 수동으로 벌금 처리
+                status = "fine"
+                exclude_reason = None
+                exclude_reason_detail = None
+            else:
+                # 인증 없음 (벌점 대상)
+                status = "penalty"
+                exclude_reason = None
+                exclude_reason_detail = None
 
             results.append({
                 "nickname": "",

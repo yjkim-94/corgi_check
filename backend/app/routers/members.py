@@ -82,6 +82,17 @@ def leave_member(member_id: int, body: MemberLeave, db: Session = Depends(get_db
     return {"success": True}
 
 
+@router.put("/{member_id}/return")
+def return_member(member_id: int, db: Session = Depends(get_db)):
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="member_not_found")
+    member.is_active = True
+    # 탈퇴 이력은 유지 (left_date, left_reason 그대로)
+    db.commit()
+    return {"success": True}
+
+
 @router.delete("/{member_id}")
 def delete_member(member_id: int, db: Session = Depends(get_db)):
     member = db.query(Member).filter(Member.id == member_id).first()

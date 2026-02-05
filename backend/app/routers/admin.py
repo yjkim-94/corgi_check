@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import AppConfig, Member, WeeklyStatus
+from app.models import AppConfig, Member, WeeklyStatus, WeeklySummary
 from app.services import gmail, chat_parser
 
 router = APIRouter()
@@ -32,6 +32,10 @@ class ManagerSet(BaseModel):
 
 class SettlementRequest(BaseModel):
     week_start: str  # 월요일 날짜 YYYY-MM-DD
+
+
+class ResetRequest(BaseModel):
+    password: str
 
 
 def set_config(db: Session, key: str, value: str):
@@ -131,6 +135,59 @@ def run_settlement(body: SettlementRequest, db: Session = Depends(get_db)):
     manager_name = get_config(db, "manager_name") or "운영진"
     summary = _build_summary(results, monday, sunday, manager_name)
 
+    # WeeklyStatus에 정산 결과 저장
+    from datetime import datetime
+    now_iso = datetime.now().isoformat()
+
+    for result in results:
+        if result["member_id"] is None:
+            continue  # DB에 없는 멤버는 스킵
+
+        # 기존 WeeklyStatus 조회
+        existing_ws = db.query(WeeklyStatus).filter(
+            WeeklyStatus.member_id == result["member_id"],
+            WeeklyStatus.week_label == week_label
+        ).first()
+
+        if existing_ws:
+            # 기존 데이터 업데이트 (제외 상태가 아니면 정산 결과로 덮어쓰기)
+            if existing_ws.status != "exclude":
+                existing_ws.status = result["status"]
+                existing_ws.exclude_reason = result["exclude_reason"]
+                existing_ws.exclude_reason_detail = result["exclude_reason_detail"]
+        else:
+            # 새로운 데이터 생성
+            new_ws = WeeklyStatus(
+                member_id=result["member_id"],
+                week_label=week_label,
+                status=result["status"],
+                exclude_reason=result["exclude_reason"],
+                exclude_reason_detail=result["exclude_reason_detail"],
+                created_at=now_iso
+            )
+            db.add(new_ws)
+
+    # WeeklySummary에 저장 (과거 내역용)
+    from app.models import WeeklySummary
+
+    existing_summary = db.query(WeeklySummary).filter(
+        WeeklySummary.week_label == week_label
+    ).first()
+
+    if existing_summary:
+        # 기존 데이터 업데이트
+        existing_summary.summary_text = summary
+    else:
+        # 새로운 데이터 생성
+        new_summary = WeeklySummary(
+            week_label=week_label,
+            summary_text=summary,
+            created_at=now_iso
+        )
+        db.add(new_summary)
+
+    db.commit()
+
     return {
         "results": results,
         "summary": summary,
@@ -146,6 +203,7 @@ def _build_summary(results: list, start: date, end: date, manager_name: str) -> 
     injeung_list = [r for r in results if r["status"] == "injeung"]
     exclude_list = [r for r in results if r["status"] == "exclude"]
     fine_list = [r for r in results if r["status"] == "fine"]
+    penalty_list = [r for r in results if r["status"] == "penalty"]
 
     lines = []
     lines.append(f"집계 기간: {_format_date(start)} ~ {_format_date(end)}")
@@ -153,7 +211,7 @@ def _build_summary(results: list, start: date, end: date, manager_name: str) -> 
     lines.append(
         f"총 인원: {total}명, "
         f"인증 인원: {len(injeung_list)}명, "
-        f"미인증 인원: {len(fine_list)}명, "
+        f"미인증 인원: {len(fine_list) + len(penalty_list)}명, "
         f"인증 제외 인원: {len(exclude_list)}명"
     )
     lines.append("")
@@ -176,6 +234,13 @@ def _build_summary(results: list, start: date, end: date, manager_name: str) -> 
         lines.append(f"벌금 납부 인원 ({len(fine_list)}명): {', '.join(names)}")
     else:
         lines.append("벌금 납부 인원이 없습니다.")
+    lines.append("")
+
+    if penalty_list:
+        names = [r["birth_prefix"] + r["name"] for r in penalty_list]
+        lines.append(f"벌점 대상 인원 ({len(penalty_list)}명): {', '.join(names)}")
+    else:
+        lines.append("벌점 대상 인원이 없습니다.")
     lines.append("")
 
     lines.append(f"궁금한 사항은 담당 운영진 {manager_name}에게 문의 바랍니다.")
@@ -216,11 +281,32 @@ def run_mid_settlement(body: SettlementRequest, db: Session = Depends(get_db)):
 
     results = chat_parser.build_result(photo_counts, members, ws_map)
 
-    fine_members = [r for r in results if r["status"] == "fine"]
-    names = [r["birth_prefix"] + r["name"] for r in fine_members]
+    # 중간정산은 벌점 대상자만 포함 (벌금은 이미 납부했으므로 제외)
+    penalty_members = [r for r in results if r["status"] == "penalty"]
+    names = [r["birth_prefix"] + r["name"] for r in penalty_members]
 
     lines = []
     lines.append("[알림] 태그되신 분들은 현재 시간 기준 아직 인증이 되지 않았거나 벌금을 납부하지 않은 것으로 확인 됩니다. 오늘 자정까지 늦지 않게 인증 또는 증빙 또는 벌금 납부 해주시기 바랍니다 ~")
     lines.append(", ".join(names))
 
     return {"summary": "\n".join(lines)}
+
+
+@router.post("/reset")
+def reset_all_data(body: ResetRequest, db: Session = Depends(get_db)):
+    """모든 주차 설정 및 과거 내역 초기화"""
+    # 비밀번호 검증
+    saved_password = get_config(db, "admin_password")
+    if not saved_password or saved_password != body.password:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Invalid password")
+
+    # WeeklyStatus 모든 데이터 삭제
+    db.query(WeeklyStatus).delete()
+
+    # WeeklySummary 모든 데이터 삭제
+    db.query(WeeklySummary).delete()
+
+    db.commit()
+
+    return {"success": True}
