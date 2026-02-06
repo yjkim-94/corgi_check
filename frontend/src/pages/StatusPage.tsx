@@ -142,22 +142,33 @@ export default function StatusPage() {
       const res = await api.status.current(weekStart);
       setData(res);
 
-      // 제외 상태인 멤버들의 제외 종료일 조회
+      // 제외 상태인 멤버들의 제외 종료일을 조회 주차 기준으로 서버에서 재조회
       const excludeMembers = res.filter((m: MemberStatus) => m.status === 'exclude');
+      const endDates: ExcludeEndDate = {};
       if (excludeMembers.length > 0) {
-        const endDates: ExcludeEndDate = {};
         await Promise.all(
           excludeMembers.map(async (m: MemberStatus) => {
             try {
-              const result = await api.status.getExcludeEnd(m.id);
+              const result = await api.status.getExcludeEnd(m.id, weekStart);
               endDates[m.id] = result.last_week_label;
             } catch {
               endDates[m.id] = null;
             }
           })
         );
-        setExcludeEndDates(endDates);
       }
+
+      // 서버 조회 결과로 갱신 (제외가 아닌 멤버는 기존 값 유지)
+      setExcludeEndDates((prev) => {
+        const merged = { ...endDates };
+        // 현재 조회 주차에 제외가 아니지만, 다른 주차에서 설정된 값은 유지
+        for (const [memberId, endDate] of Object.entries(prev)) {
+          if (!(Number(memberId) in merged) && endDate) {
+            merged[Number(memberId)] = endDate;
+          }
+        }
+        return merged;
+      });
     } catch {
       // ignore
     } finally {
@@ -193,14 +204,18 @@ export default function StatusPage() {
     }
 
     try {
-      await api.status.update(member.id, update);
+      const response: any = await api.status.update(member.id, update);
 
-      // 제외 종료일 업데이트 (제외가 아니면 삭제)
-      if (newStatus !== 'exclude') {
-        const newEndDates = { ...excludeEndDates };
-        delete newEndDates[member.id];
-        setExcludeEndDates(newEndDates);
-      }
+      // 서버가 재계산한 제외 종료 주차로 갱신 (단일 소스)
+      setExcludeEndDates((prev) => {
+        const updated = { ...prev };
+        if (response.exclude_end_label) {
+          updated[member.id] = response.exclude_end_label;
+        } else {
+          delete updated[member.id];
+        }
+        return updated;
+      });
 
       load(selectedWeek.value);
     } catch (e: any) {
@@ -268,12 +283,12 @@ export default function StatusPage() {
         });
       }
 
-      // 제외 종료일 업데이트
-      if (response.last_week_label) {
-        setExcludeEndDates({
-          ...excludeEndDates,
-          [member.id]: response.last_week_label
-        });
+      // 서버가 재계산한 제외 종료 주차로 갱신 (단일 소스)
+      if (response.exclude_end_label) {
+        setExcludeEndDates((prev) => ({
+          ...prev,
+          [member.id]: response.exclude_end_label
+        }));
       }
 
       // 상태 초기화
@@ -282,6 +297,7 @@ export default function StatusPage() {
       delete newPending[member.id];
       setPendingExcludeReason(newPending);
 
+      // 데이터 새로고침
       load(selectedWeek.value);
     } catch (e: any) {
       alert(e.message || '상태 변경 실패');
@@ -335,6 +351,11 @@ export default function StatusPage() {
 
   const sortedData = sortByBirthName(data, sortAsc);
 
+  // 상태별 통계 계산
+  const excludeCount = sortedData.filter(m => m.status === 'exclude').length;
+  const fineCount = sortedData.filter(m => m.status === 'fine').length;
+  const injeungCount = sortedData.length - excludeCount - fineCount;
+
   if (loading) return <p className="text-gray-500">불러오는 중...</p>;
 
   return (
@@ -354,6 +375,22 @@ export default function StatusPage() {
         >
           정렬 {sortAsc ? '▲' : '▼'}
         </button>
+      </div>
+
+      {/* 상태별 통계 */}
+      <div className="flex gap-3 mb-4">
+        <div className="bg-white rounded-lg shadow px-4 py-2 flex items-center gap-2">
+          <span className="text-sm text-gray-600">인증</span>
+          <span className="text-lg font-bold text-green-600">{injeungCount}</span>
+        </div>
+        <div className="bg-white rounded-lg shadow px-4 py-2 flex items-center gap-2">
+          <span className="text-sm text-gray-600">제외</span>
+          <span className="text-lg font-bold text-blue-600">{excludeCount}</span>
+        </div>
+        <div className="bg-white rounded-lg shadow px-4 py-2 flex items-center gap-2">
+          <span className="text-sm text-gray-600">벌금</span>
+          <span className="text-lg font-bold text-red-600">{fineCount}</span>
+        </div>
       </div>
 
       {/* 정산 실행 */}
@@ -450,11 +487,17 @@ export default function StatusPage() {
                   <select
                     value={m.status}
                     onChange={(e) => handleStatusChange(m, e.target.value)}
-                    className="border border-gray-300 rounded px-2 py-1 text-sm"
+                    className={`border rounded px-2 py-1 text-sm ${
+                      m.status === 'exclude'
+                        ? 'bg-blue-50 border-blue-300 text-blue-800'
+                        : m.status === 'fine'
+                        ? 'bg-red-50 border-red-300 text-red-800'
+                        : 'bg-green-50 border-green-300 text-green-800'
+                    }`}
                   >
-                    <option value="injeung">인증</option>
-                    <option value="exclude">제외</option>
-                    <option value="fine">벌금</option>
+                    <option value="injeung" className="bg-green-50 text-green-800">인증</option>
+                    <option value="exclude" className="bg-blue-50 text-blue-800">제외</option>
+                    <option value="fine" className="bg-red-50 text-red-800">벌금</option>
                   </select>
                   {m.status === 'exclude' && (
                     <>
@@ -522,11 +565,17 @@ export default function StatusPage() {
                 <select
                   value={m.status}
                   onChange={(e) => handleStatusChange(m, e.target.value)}
-                  className="border border-gray-300 rounded px-1 py-1 text-xs"
+                  className={`border rounded px-1 py-1 text-xs ${
+                    m.status === 'exclude'
+                      ? 'bg-blue-50 border-blue-300 text-blue-800'
+                      : m.status === 'fine'
+                      ? 'bg-red-50 border-red-300 text-red-800'
+                      : 'bg-green-50 border-green-300 text-green-800'
+                  }`}
                 >
-                  <option value="injeung">인증</option>
-                  <option value="exclude">제외</option>
-                  <option value="fine">벌금</option>
+                  <option value="injeung" className="bg-green-50 text-green-800">인증</option>
+                  <option value="exclude" className="bg-blue-50 text-blue-800">제외</option>
+                  <option value="fine" className="bg-red-50 text-red-800">벌금</option>
                 </select>
                 {m.status === 'exclude' && (
                   <div className="flex flex-col gap-1">

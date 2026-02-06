@@ -93,31 +93,63 @@ def get_current_status(week_start: Optional[str] = None, db: Session = Depends(g
     return result
 
 
-@router.get("/{member_id}/exclude-end")
-def get_exclude_end(member_id: int, db: Session = Depends(get_db)):
-    """해당 멤버의 제외 종료 주차 조회"""
-    current_week = get_current_week_label()
+def calc_exclude_end(member_id: int, week_start_label: str, db: Session) -> str:
+    """주어진 주차부터 연속 제외 구간의 마지막 주차를 DB에서 계산"""
+    from datetime import date
 
-    # 현재 주차부터 미래로 8주까지 조회
-    future_weeks = get_future_week_labels(8)
+    # week_start_label (예: "2026-W06")에서 월요일 날짜 계산
+    match = None
+    import re
+    match = re.match(r'(\d{4})-W(\d{2})', week_start_label)
+    if not match:
+        return None
+
+    year = int(match.group(1))
+    week = int(match.group(2))
+    # ISO week의 월요일 구하기
+    jan4 = date(year, 1, 4)
+    start_of_week1 = jan4 - timedelta(days=jan4.weekday())
+    monday = start_of_week1 + timedelta(weeks=week - 1)
 
     last_exclude_week = None
-    for week_label in future_weeks:
+    for i in range(16):  # 최대 16주까지 탐색
+        target = monday + timedelta(weeks=i)
+        iso = target.isocalendar()
+        wl = f"{iso[0]}-W{iso[1]:02d}"
         ws = (
             db.query(WeeklyStatus)
             .filter(
                 WeeklyStatus.member_id == member_id,
-                WeeklyStatus.week_label == week_label,
+                WeeklyStatus.week_label == wl,
                 WeeklyStatus.status == "exclude"
             )
             .first()
         )
         if ws:
-            last_exclude_week = week_label
+            last_exclude_week = wl
         else:
             break
 
-    return {"last_week_label": last_exclude_week}
+    return last_exclude_week
+
+
+@router.get("/{member_id}/exclude-end")
+def get_exclude_end(
+    member_id: int,
+    week_start: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """해당 멤버의 제외 종료 주차 조회. week_start가 주어지면 해당 주차부터 탐색."""
+    if week_start:
+        from datetime import date
+        monday = date.fromisoformat(week_start)
+        iso = monday.isocalendar()
+        start_label = f"{iso[0]}-W{iso[1]:02d}"
+    else:
+        start_label = get_current_week_label()
+
+    last_week = calc_exclude_end(member_id, start_label, db)
+    return {"last_week_label": last_week}
 
 
 @router.put("/{member_id}")
@@ -178,12 +210,18 @@ def update_status(member_id: int, body: StatusUpdate, db: Session = Depends(get_
 
     db.commit()
 
-    # 마지막 제외 주차 계산
-    last_week_label = week_labels[-1] if week_labels else None
+    # 제외 종료 주차를 DB에서 재계산 (단일 소스)
+    exclude_end_label = None
+    if body.status == "exclude":
+        # 설정 시작 주차부터 연속 제외 구간 계산
+        exclude_end_label = calc_exclude_end(member_id, week_labels[0], db)
+    else:
+        # 제외 해제된 경우: 해당 주차에서 아직 제외 상태가 남아있는지 확인
+        exclude_end_label = calc_exclude_end(member_id, week_labels[0], db)
 
     return {
         "success": True,
         "weeks_processed": num_weeks,
         "member_name": member.name,
-        "last_week_label": last_week_label
+        "exclude_end_label": exclude_end_label
     }

@@ -204,6 +204,7 @@ def _build_summary(results: list, start: date, end: date, manager_name: str) -> 
     exclude_list = [r for r in results if r["status"] == "exclude"]
     fine_list = [r for r in results if r["status"] == "fine"]
     penalty_list = [r for r in results if r["status"] == "penalty"]
+    exclude_but_certified_list = [r for r in results if r.get("is_exclude_but_certified", False)]
 
     lines = []
     lines.append(f"집계 기간: {_format_date(start)} ~ {_format_date(end)}")
@@ -229,18 +230,24 @@ def _build_summary(results: list, start: date, end: date, manager_name: str) -> 
         lines.append("인증 제외 인원이 없습니다.")
     lines.append("")
 
+    # 제외됐지만 인증한 인원 (있을 때만 표시)
+    if exclude_but_certified_list:
+        names = [r["birth_prefix"] + r["name"] for r in exclude_but_certified_list]
+        lines.append(f"인증 제외됐지만 인증한 인원 ({len(exclude_but_certified_list)}명): {', '.join(names)} 😎")
+        lines.append("")
+
     if fine_list:
         names = [r["birth_prefix"] + r["name"] for r in fine_list]
-        lines.append(f"벌금 납부 인원 ({len(fine_list)}명): {', '.join(names)}")
+        lines.append(f"벌금 납부 인원 ({len(fine_list)}명): {', '.join(names)} 💰")
     else:
         lines.append("벌금 납부 인원이 없습니다.")
     lines.append("")
 
     if penalty_list:
         names = [r["birth_prefix"] + r["name"] for r in penalty_list]
-        lines.append(f"벌점 대상 인원 ({len(penalty_list)}명): {', '.join(names)}")
+        lines.append(f"벌점 대상 인원 ({len(penalty_list)}명): {', '.join(names)} 😭")
     else:
-        lines.append("벌점 대상 인원이 없습니다.")
+        lines.append("벌점 대상 인원이 없습니다. 👍")
     lines.append("")
 
     lines.append(f"궁금한 사항은 담당 운영진 {manager_name}에게 문의 바랍니다.")

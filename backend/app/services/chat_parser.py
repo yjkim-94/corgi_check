@@ -52,9 +52,9 @@ def parse_chat(
                 continue
             nickname = match.group(4).strip()
 
-            # 닉네임이 "."인 경우 관리자(94김용진)로 매핑
+            # 닉네임 매핑
             if nickname == ".":
-                nickname = "헬톡94김용진_4"
+                nickname = "94김용진"
 
             count = int(match.group(5))
             photo_counts[nickname] = photo_counts.get(nickname, 0) + count
@@ -63,18 +63,32 @@ def parse_chat(
 
 
 def extract_name_from_nickname(nickname: str) -> str:
-    """닉네임에서 이름 추출. 예: 헬톡96장영범_7 -> 장영범"""
+    """닉네임에서 이름 추출. 예: 헬톡96장영범_7 -> 장영범, 94김용진 -> 김용진"""
+    # 패턴 1: 헬톡\d{2}이름_\d+ (예: 헬톡96장영범_7)
     m = re.match(r"헬톡\d{2}(.+?)_\d+", nickname)
     if m:
         return m.group(1)
+
+    # 패턴 2: \d{2}이름 (예: 94김용진)
+    m = re.match(r"\d{2}(.+)", nickname)
+    if m:
+        return m.group(1)
+
     return nickname
 
 
 def extract_birth_prefix(nickname: str) -> str:
-    """닉네임에서 생년 2자리 추출. 예: 헬톡96장영범_7 -> 96"""
+    """닉네임에서 생년 2자리 추출. 예: 헬톡96장영범_7 -> 96, 94김용진 -> 94"""
+    # 패턴 1: 헬톡\d{2}이름_\d+ (예: 헬톡96장영범_7)
     m = re.match(r"헬톡(\d{2}).+?_\d+", nickname)
     if m:
         return m.group(1)
+
+    # 패턴 2: \d{2}이름 (예: 94김용진)
+    m = re.match(r"(\d{2}).+", nickname)
+    if m:
+        return m.group(1)
+
     return ""
 
 
@@ -118,10 +132,14 @@ def build_result(photo_counts: dict, members: list, weekly_statuses: dict = None
         ws = weekly_statuses.get(member.id) if member else None
 
         # 상태 결정 로직
+        is_exclude_but_certified = False
         if ws and ws.status == "exclude":
             status = "exclude"
             exclude_reason = ws.exclude_reason
             exclude_reason_detail = ws.exclude_reason_detail
+            # 제외 처리됐지만 4장 이상 인증한 경우 플래그 설정
+            if count >= 4:
+                is_exclude_but_certified = True
         elif ws and ws.status == "fine":
             # 수동으로 벌금 처리된 경우
             status = "fine"
@@ -146,6 +164,7 @@ def build_result(photo_counts: dict, members: list, weekly_statuses: dict = None
             "exclude_reason": exclude_reason,
             "exclude_reason_detail": exclude_reason_detail,
             "member_id": member.id if member else None,
+            "is_exclude_but_certified": is_exclude_but_certified,
         }
         results.append(result)
         if member:
@@ -181,6 +200,7 @@ def build_result(photo_counts: dict, members: list, weekly_statuses: dict = None
                 "exclude_reason": exclude_reason,
                 "exclude_reason_detail": exclude_reason_detail,
                 "member_id": member.id,
+                "is_exclude_but_certified": False,
             })
 
     results.sort(key=lambda x: x["name"])

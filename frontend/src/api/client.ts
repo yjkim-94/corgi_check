@@ -35,8 +35,8 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
-    getExcludeEnd: (memberId: number) =>
-      request<{ last_week_label: string | null }>('/status/' + memberId + '/exclude-end'),
+    getExcludeEnd: (memberId: number, weekStart?: string) =>
+      request<{ last_week_label: string | null }>('/status/' + memberId + '/exclude-end' + (weekStart ? `?week_start=${weekStart}` : '')),
   },
   history: {
     weeks: () => request<string[]>('/history/weeks'),

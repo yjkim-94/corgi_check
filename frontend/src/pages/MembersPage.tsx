@@ -86,6 +86,11 @@ export default function MembersPage() {
 
   const sortedMembers = sortByBirthName(members, sortAsc);
 
+  // 통계 계산
+  const totalCount = members.length;
+  const activeCount = members.filter(m => m.is_active).length;
+  const leftCount = members.filter(m => !m.is_active).length;
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -106,6 +111,22 @@ export default function MembersPage() {
         </div>
       </div>
 
+      {/* 인원 통계 */}
+      <div className="flex gap-3 mb-4">
+        <div className="bg-white rounded-lg shadow px-4 py-2 flex items-center gap-2">
+          <span className="text-sm text-gray-600">전체</span>
+          <span className="text-lg font-bold text-gray-900">{totalCount}</span>
+        </div>
+        <div className="bg-white rounded-lg shadow px-4 py-2 flex items-center gap-2">
+          <span className="text-sm text-gray-600">활동</span>
+          <span className="text-lg font-bold text-green-600">{activeCount}</span>
+        </div>
+        <div className="bg-white rounded-lg shadow px-4 py-2 flex items-center gap-2">
+          <span className="text-sm text-gray-600">탈퇴</span>
+          <span className="text-lg font-bold text-gray-400">{leftCount}</span>
+        </div>
+      </div>
+
       <label className="flex items-center gap-2 mb-4 text-sm text-gray-600">
         <input
           type="checkbox"
@@ -121,6 +142,7 @@ export default function MembersPage() {
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b-2 border-gray-200">
+              <th className="text-center py-2 px-2 w-16">번호</th>
               <th className="text-left py-2 px-3">이름</th>
               <th className="text-left py-2 px-3">생년</th>
               <th className="text-left py-2 px-3">상태</th>
@@ -130,8 +152,9 @@ export default function MembersPage() {
             </tr>
           </thead>
           <tbody>
-            {sortedMembers.map((m) => (
+            {sortedMembers.map((m, index) => (
               <tr key={m.id} className="border-b border-gray-100 hover:bg-gray-50">
+                <td className="py-2 px-2 text-center text-gray-500 text-sm">{index + 1}</td>
                 <td className="py-2 px-3 font-medium">{m.name}</td>
                 <td className="py-2 px-3 text-gray-500">{m.birth_date ? `${m.birth_date}년` : '-'}</td>
                 <td className="py-2 px-3">
@@ -164,10 +187,13 @@ export default function MembersPage() {
 
       {/* 모바일 카드 */}
       <div className="sm:hidden space-y-3">
-        {sortedMembers.map((m) => (
+        {sortedMembers.map((m, index) => (
           <div key={m.id} className="bg-white rounded-lg shadow p-4">
             <div className="flex items-center justify-between mb-1">
-              <span className="font-medium">{m.name}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400 text-sm w-6">{index + 1}</span>
+                <span className="font-medium">{m.name}</span>
+              </div>
               {m.is_active ? (
                 <span className="text-green-600 text-xs">활동</span>
               ) : (
