@@ -206,6 +206,21 @@ def _build_summary(results: list, start: date, end: date, manager_name: str) -> 
     penalty_list = [r for r in results if r["status"] == "penalty"]
     exclude_but_certified_list = [r for r in results if r.get("is_exclude_but_certified", False)]
 
+    # 생년→가나다 순 정렬 함수 (2000년대생 고려)
+    def sort_by_birth_name(lst):
+        def birth_sort_key(birth_prefix):
+            # 빈 값 처리
+            if not birth_prefix:
+                return (9999, "")
+            # 2자리 숫자를 4자리로 변환 (00-29 → 2000-2029, 30-99 → 1930-1999)
+            year_2digit = int(birth_prefix)
+            if year_2digit <= 29:
+                return (2000 + year_2digit, birth_prefix)
+            else:
+                return (1900 + year_2digit, birth_prefix)
+
+        return sorted(lst, key=lambda r: (birth_sort_key(r["birth_prefix"])[0], r["name"]))
+
     lines = []
     lines.append(f"집계 기간: {_format_date(start)} ~ {_format_date(end)}")
     lines.append("")
@@ -218,8 +233,9 @@ def _build_summary(results: list, start: date, end: date, manager_name: str) -> 
     lines.append("")
 
     if exclude_list:
+        sorted_exclude = sort_by_birth_name(exclude_list)
         names = []
-        for r in exclude_list:
+        for r in sorted_exclude:
             label = r["birth_prefix"] + r["name"]
             reason = EXCLUDE_LABELS.get(r["exclude_reason"], r.get("exclude_reason_detail") or "")
             if reason:
@@ -232,19 +248,22 @@ def _build_summary(results: list, start: date, end: date, manager_name: str) -> 
 
     # 제외됐지만 인증한 인원 (있을 때만 표시)
     if exclude_but_certified_list:
-        names = [r["birth_prefix"] + r["name"] for r in exclude_but_certified_list]
+        sorted_certified = sort_by_birth_name(exclude_but_certified_list)
+        names = [r["birth_prefix"] + r["name"] for r in sorted_certified]
         lines.append(f"인증 제외됐지만 인증한 인원 ({len(exclude_but_certified_list)}명): {', '.join(names)} 😎")
         lines.append("")
 
     if fine_list:
-        names = [r["birth_prefix"] + r["name"] for r in fine_list]
+        sorted_fine = sort_by_birth_name(fine_list)
+        names = [r["birth_prefix"] + r["name"] for r in sorted_fine]
         lines.append(f"벌금 납부 인원 ({len(fine_list)}명): {', '.join(names)} 💰")
     else:
         lines.append("벌금 납부 인원이 없습니다.")
     lines.append("")
 
     if penalty_list:
-        names = [r["birth_prefix"] + r["name"] for r in penalty_list]
+        sorted_penalty = sort_by_birth_name(penalty_list)
+        names = [r["birth_prefix"] + r["name"] for r in sorted_penalty]
         lines.append(f"벌점 대상 인원 ({len(penalty_list)}명): {', '.join(names)} 😭")
     else:
         lines.append("벌점 대상 인원이 없습니다. 👍")
