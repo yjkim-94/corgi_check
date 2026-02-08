@@ -1,8 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional
+import re
 from app.database import get_db
 from app.models import Member, WeeklyStatus
 
@@ -57,7 +58,6 @@ class StatusUpdate(BaseModel):
 def get_current_status(week_start: Optional[str] = None, db: Session = Depends(get_db)):
     # week_start가 제공되면 해당 날짜로 week_label 계산
     if week_start:
-        from datetime import date
         monday = date.fromisoformat(week_start)
         iso = monday.isocalendar()
         week_label = f"{iso[0]}-W{iso[1]:02d}"
@@ -80,6 +80,12 @@ def get_current_status(week_start: Optional[str] = None, db: Session = Depends(g
             )
             .first()
         )
+
+        # 제외 상태인 경우 연속 제외 구간의 종료 주차를 계산
+        exclude_end_label = None
+        if ws and ws.status == "exclude":
+            exclude_end_label = calc_exclude_end(m.id, week_label, db)
+
         result.append({
             "id": m.id,
             "name": m.name,
@@ -89,17 +95,14 @@ def get_current_status(week_start: Optional[str] = None, db: Session = Depends(g
             "exclude_reason_detail": ws.exclude_reason_detail if ws else None,
             "week_label": week_label,
             "week_display": week_display,
+            "exclude_end_label": exclude_end_label,
         })
     return result
 
 
 def calc_exclude_end(member_id: int, week_start_label: str, db: Session) -> str:
     """주어진 주차부터 연속 제외 구간의 마지막 주차를 DB에서 계산"""
-    from datetime import date
-
     # week_start_label (예: "2026-W06")에서 월요일 날짜 계산
-    match = None
-    import re
     match = re.match(r'(\d{4})-W(\d{2})', week_start_label)
     if not match:
         return None
@@ -141,7 +144,6 @@ def get_exclude_end(
 ):
     """해당 멤버의 제외 종료 주차 조회. week_start가 주어지면 해당 주차부터 탐색."""
     if week_start:
-        from datetime import date
         monday = date.fromisoformat(week_start)
         iso = monday.isocalendar()
         start_label = f"{iso[0]}-W{iso[1]:02d}"
@@ -154,8 +156,6 @@ def get_exclude_end(
 
 @router.put("/{member_id}")
 def update_status(member_id: int, body: StatusUpdate, db: Session = Depends(get_db)):
-    from datetime import date
-
     # consecutive_weeks 검증
     num_weeks = body.consecutive_weeks or 1
     if num_weeks < 1 or num_weeks > 8:
@@ -183,8 +183,50 @@ def update_status(member_id: int, body: StatusUpdate, db: Session = Depends(get_
 
     now_iso = datetime.now().isoformat()
 
+    # 연속 제외 생성 시 이미 제외된 주차는 덮어쓰지 않음 (주차별 사유 보존)
+    skip_existing_exclude = (num_weeks > 1 and body.status == "exclude")
+
+    # 제외 해제 시 (exclude → injeung/fine) 이후 연속 제외 구간도 함께 해제
+    target_week_labels = week_labels
+    if body.status != "exclude" and num_weeks == 1:
+        # 단일 주차 변경이고 제외→다른 상태 변경인 경우
+        # 기존 연속 제외 구간의 끝을 찾아서 모두 변경
+        first_week = week_labels[0]
+
+        # 현재 주차가 제외 상태인지 확인
+        current_ws = (
+            db.query(WeeklyStatus)
+            .filter(
+                WeeklyStatus.member_id == member_id,
+                WeeklyStatus.week_label == first_week,
+            )
+            .first()
+        )
+
+        if current_ws and current_ws.status == "exclude":
+            # 연속 제외 구간의 끝을 찾음
+            exclude_end = calc_exclude_end(member_id, first_week, db)
+
+            if exclude_end:
+                # first_week부터 exclude_end까지의 모든 주차 라벨 생성
+                match = re.match(r'(\d{4})-W(\d{2})', first_week)
+                year = int(match.group(1))
+                week = int(match.group(2))
+                jan4 = date(year, 1, 4)
+                start_of_week1 = jan4 - timedelta(days=jan4.weekday())
+                start_monday = start_of_week1 + timedelta(weeks=week - 1)
+
+                target_week_labels = []
+                for i in range(16):  # 최대 16주
+                    target = start_monday + timedelta(weeks=i)
+                    iso = target.isocalendar()
+                    wl = f"{iso[0]}-W{iso[1]:02d}"
+                    target_week_labels.append(wl)
+                    if wl == exclude_end:
+                        break
+
     # 각 주차에 대해 WeeklyStatus 생성/업데이트
-    for week_label in week_labels:
+    for week_label in target_week_labels:
         ws = (
             db.query(WeeklyStatus)
             .filter(
@@ -194,6 +236,9 @@ def update_status(member_id: int, body: StatusUpdate, db: Session = Depends(get_
             .first()
         )
         if ws:
+            # 연속 제외 시 이미 제외 상태인 주차는 건너뜀 (사유 보존)
+            if skip_existing_exclude and ws.status == "exclude":
+                continue
             ws.status = body.status
             ws.exclude_reason = body.exclude_reason
             ws.exclude_reason_detail = body.exclude_reason_detail

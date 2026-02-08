@@ -20,10 +20,7 @@ interface MemberStatus {
   exclude_reason_detail: string | null;
   week_label: string;
   week_display: string;
-}
-
-interface ExcludeEndDate {
-  [memberId: number]: string | null; // week_label
+  exclude_end_label: string | null;
 }
 
 function getMonday(d: Date): Date {
@@ -117,8 +114,6 @@ export default function StatusPage() {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [consecutiveWeeks, setConsecutiveWeeks] = useState<Record<number, number>>({});
   const [successBanner, setSuccessBanner] = useState('');
-  const [pendingExcludeReason, setPendingExcludeReason] = useState<Record<number, { reason: string; detail: string | null }>>({});
-  const [excludeEndDates, setExcludeEndDates] = useState<ExcludeEndDate>({});
 
   // localStorage에서 futureWeeks 복원 (최소 4주)
   const [weeks, setWeeks] = useState(() => {
@@ -141,34 +136,6 @@ export default function StatusPage() {
     try {
       const res = await api.status.current(weekStart);
       setData(res);
-
-      // 제외 상태인 멤버들의 제외 종료일을 조회 주차 기준으로 서버에서 재조회
-      const excludeMembers = res.filter((m: MemberStatus) => m.status === 'exclude');
-      const endDates: ExcludeEndDate = {};
-      if (excludeMembers.length > 0) {
-        await Promise.all(
-          excludeMembers.map(async (m: MemberStatus) => {
-            try {
-              const result = await api.status.getExcludeEnd(m.id, weekStart);
-              endDates[m.id] = result.last_week_label;
-            } catch {
-              endDates[m.id] = null;
-            }
-          })
-        );
-      }
-
-      // 서버 조회 결과로 갱신 (제외가 아닌 멤버는 기존 값 유지)
-      setExcludeEndDates((prev) => {
-        const merged = { ...endDates };
-        // 현재 조회 주차에 제외가 아니지만, 다른 주차에서 설정된 값은 유지
-        for (const [memberId, endDate] of Object.entries(prev)) {
-          if (!(Number(memberId) in merged) && endDate) {
-            merged[Number(memberId)] = endDate;
-          }
-        }
-        return merged;
-      });
     } catch {
       // ignore
     } finally {
@@ -197,6 +164,7 @@ export default function StatusPage() {
     const update: any = {
       status: newStatus,
       week_start: selectedWeek.value,
+      consecutive_weeks: 1,
     };
     if (newStatus !== 'exclude') {
       update.exclude_reason = null;
@@ -204,50 +172,49 @@ export default function StatusPage() {
     }
 
     try {
-      const response: any = await api.status.update(member.id, update);
-
-      // 서버가 재계산한 제외 종료 주차로 갱신 (단일 소스)
-      setExcludeEndDates((prev) => {
-        const updated = { ...prev };
-        if (response.exclude_end_label) {
-          updated[member.id] = response.exclude_end_label;
-        } else {
-          delete updated[member.id];
-        }
-        return updated;
-      });
-
+      await api.status.update(member.id, update);
       load(selectedWeek.value);
     } catch (e: any) {
       alert(e.message || '상태 변경 실패');
     }
   };
 
-  const handleExcludeReason = (member: MemberStatus, reason: string) => {
-    const detail = reason === 'custom' ? prompt('세부 사유를 입력하세요:') || '' : null;
+  const handleExcludeReason = async (member: MemberStatus, reason: string) => {
+    let detail: string | null = null;
+    if (reason === 'custom') {
+      const input = prompt('세부 사유를 입력하세요:');
+      if (input === null) return;
+      detail = input || '';
+    }
 
-    // 로컬 state에 저장 (API 호출 안 함)
-    setPendingExcludeReason({
-      ...pendingExcludeReason,
-      [member.id]: { reason, detail }
-    });
+    try {
+      await api.status.update(member.id, {
+        status: 'exclude',
+        exclude_reason: reason,
+        exclude_reason_detail: detail,
+        consecutive_weeks: 1,
+        week_start: selectedWeek.value,
+      });
+      load(selectedWeek.value);
+    } catch (e: any) {
+      alert(e.message || '사유 변경 실패');
+    }
   };
 
   const handleConsecutiveWeeksChange = async (member: MemberStatus, numWeeks: number) => {
     if (numWeeks === 0) return;
 
-    // 로컬 state 또는 기존 데이터에서 제외 사유 가져오기
-    const pending = pendingExcludeReason[member.id];
-    const excludeReason = pending?.reason || member.exclude_reason;
-    const excludeDetail = pending?.detail || member.exclude_reason_detail;
+    // 현재 주차에 저장된 사유를 사용 (이미 서버에 저장된 값)
+    const excludeReason = member.exclude_reason;
+    const excludeDetail = member.exclude_reason_detail;
 
     try {
-      const response: any = await api.status.update(member.id, {
+      await api.status.update(member.id, {
         status: 'exclude',
         exclude_reason: excludeReason || undefined,
         exclude_reason_detail: excludeDetail || undefined,
         consecutive_weeks: numWeeks,
-        week_start: selectedWeek.value, // 선택된 주차부터 시작
+        week_start: selectedWeek.value,
       });
 
       // 성공 배너 표시
@@ -257,17 +224,16 @@ export default function StatusPage() {
       setSuccessBanner(bannerMsg);
       setTimeout(() => setSuccessBanner(''), 3000);
 
-      // 선택된 주차부터 N주 후까지 미래 주차 계산
+      // 미래 주차 드롭다운 확장 (UI 탐색용)
       const selectedMonday = new Date(selectedWeek.value);
       const endMonday = new Date(selectedMonday);
       endMonday.setDate(endMonday.getDate() + (numWeeks - 1) * 7);
       const endMondayStr = toISODate(endMonday);
       const thisMondayStr = toISODate(getMonday(new Date()));
 
-      // 현재 주차로부터 몇 주 후인지 계산
       if (endMondayStr > thisMondayStr) {
         const diffDays = Math.floor((endMonday.getTime() - getMonday(new Date()).getTime()) / (1000 * 60 * 60 * 24));
-        const neededFuture = Math.max(Math.ceil(diffDays / 7), 4); // 최소 4주
+        const neededFuture = Math.max(Math.ceil(diffDays / 7), 4);
 
         setWeeks((prev) => {
           let currentFuture = 0;
@@ -283,19 +249,8 @@ export default function StatusPage() {
         });
       }
 
-      // 서버가 재계산한 제외 종료 주차로 갱신 (단일 소스)
-      if (response.exclude_end_label) {
-        setExcludeEndDates((prev) => ({
-          ...prev,
-          [member.id]: response.exclude_end_label
-        }));
-      }
-
-      // 상태 초기화
+      // 주차 선택 초기화
       setConsecutiveWeeks({ ...consecutiveWeeks, [member.id]: 0 });
-      const newPending = { ...pendingExcludeReason };
-      delete newPending[member.id];
-      setPendingExcludeReason(newPending);
 
       // 데이터 새로고침
       load(selectedWeek.value);
@@ -502,7 +457,7 @@ export default function StatusPage() {
                   {m.status === 'exclude' && (
                     <>
                       <select
-                        value={pendingExcludeReason[m.id]?.reason || m.exclude_reason || ''}
+                        value={m.exclude_reason || ''}
                         onChange={(e) => handleExcludeReason(m, e.target.value)}
                         className="ml-2 border border-gray-300 rounded px-2 py-1 text-sm"
                       >
@@ -511,7 +466,7 @@ export default function StatusPage() {
                           <option key={o} value={o}>{EXCLUDE_LABELS[o]}</option>
                         ))}
                       </select>
-                      {(pendingExcludeReason[m.id]?.reason || m.exclude_reason) && (
+                      {m.exclude_reason && (
                         <>
                           <select
                             value={consecutiveWeeks[m.id] || 0}
@@ -519,16 +474,16 @@ export default function StatusPage() {
                             className="ml-2 border border-gray-300 rounded px-2 py-1 text-sm"
                           >
                             <option value={0}>선택</option>
-                            {((pendingExcludeReason[m.id]?.reason || m.exclude_reason) === 'travel'
+                            {(m.exclude_reason === 'travel'
                               ? [1, 2]
                               : [1, 2, 3, 4, 5, 6, 7, 8]
                             ).map(n => (
                               <option key={n} value={n}>{n}주</option>
                             ))}
                           </select>
-                          {excludeEndDates[m.id] && (
+                          {m.exclude_end_label && (
                             <span className="ml-2 text-xs text-gray-500">
-                              ({weekLabelToDate(excludeEndDates[m.id]!)} 주까지 제외)
+                              ({weekLabelToDate(m.exclude_end_label)} 주까지 제외)
                             </span>
                           )}
                         </>
@@ -581,7 +536,7 @@ export default function StatusPage() {
                   <div className="flex flex-col gap-1">
                     <div className="flex gap-1">
                       <select
-                        value={pendingExcludeReason[m.id]?.reason || m.exclude_reason || ''}
+                        value={m.exclude_reason || ''}
                         onChange={(e) => handleExcludeReason(m, e.target.value)}
                         className="border border-gray-300 rounded px-1 py-1 text-xs w-20"
                       >
@@ -590,14 +545,14 @@ export default function StatusPage() {
                           <option key={o} value={o}>{EXCLUDE_LABELS[o]}</option>
                         ))}
                       </select>
-                      {(pendingExcludeReason[m.id]?.reason || m.exclude_reason) && (
+                      {m.exclude_reason && (
                         <select
                           value={consecutiveWeeks[m.id] || 0}
                           onChange={(e) => handleConsecutiveWeeksChange(m, Number(e.target.value))}
                           className="border border-gray-300 rounded px-1 py-1 text-xs w-16"
                         >
                           <option value={0}>선택</option>
-                          {((pendingExcludeReason[m.id]?.reason || m.exclude_reason) === 'travel'
+                          {(m.exclude_reason === 'travel'
                             ? [1, 2]
                             : [1, 2, 3, 4, 5, 6, 7, 8]
                           ).map(n => (
@@ -606,9 +561,9 @@ export default function StatusPage() {
                         </select>
                       )}
                     </div>
-                    {excludeEndDates[m.id] && (
+                    {m.exclude_end_label && (
                       <span className="text-xs text-gray-500">
-                        {weekLabelToDate(excludeEndDates[m.id]!)} 주까지 제외
+                        {weekLabelToDate(m.exclude_end_label)} 주까지 제외
                       </span>
                     )}
                   </div>

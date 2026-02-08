@@ -1,137 +1,73 @@
-# CLAUDE.md - Corgi Check Web App
+# CLAUDE.md - Corgi Check
 
-이 파일은 Corgi Check 프로젝트의 Claude Code 지침입니다.
+웰시코기 운동 인증 모임 관리 웹 애플리케이션
 
-## 일반지침
- - 커밋메세지를 작성해달라는 요청에는 메세지만 30줄 이내로 작성할 것
-
-## 대답 지시사항
-1. 모든 대답은 한국어로 하세요.
-2. 전문 용어는 번역하지 마세요.
-3. 코드 작성 시 특수문자는 지양하세요. *인코딩 문제
-4. 주석은 한글로 작성하세요.
+## 일반 지침
+- 커밋 메시지: 30줄 이내, 한글 작성
+- 모든 대답: 한국어 (전문 용어는 번역 안 함)
+- 코드 주석: 한글
+- 특수문자 지양 (인코딩 문제)
 
 ## 프로젝트 개요
-
-웰시코기 운동 인증 모임의 주간 인증 관리 웹 애플리케이션입니다.
-Gmail에서 인증 메일을 파싱하여 주간 정산을 자동화하고, 멤버 상태/벌금/제외 사유를 관리합니다.
+Gmail에서 카카오톡 채팅 내보내기를 파싱하여 주간 정산 자동화, 멤버 상태 관리
 
 ## 기술 스택
+- Frontend: React + TypeScript + Vite + Tailwind CSS
+- Backend: FastAPI + SQLAlchemy + SQLite
+- Auth: Google OAuth 2.0 (Gmail API)
+- 배포: Vercel (Frontend) + Render/Railway (Backend)
 
-- **Frontend**: React + TypeScript + Vite
-- **UI**: Tailwind CSS + Headless UI
-- **Backend**: FastAPI (Python)
-- **DB**: SQLite (경량 단일 파일 DB)
-- **인증**: Google OAuth 2.0 (Gmail API)
-- **배포**: 추후 결정
+## 핵심 기능
 
-## 디자인 가이드
+### 1. 연속 제외 처리
+- 데이터 책임: 주차 단위 상태 저장, 연속 구간은 조회 시 계산
+- 주차별 사유 보존: 덮어쓰지 않고 누적 가능
+- 부분 해제: 중간 주차 변경 시 자동 분할
+- 제외 해제 시 이후 연속 구간 일괄 해제
 
-- 색상 테마: 웰시코기 Orange (#E8751A), Black (#1A1A1A), White (#FFFFFF)
-- 반응형: 모바일 가로 스크롤 또는 카드형 전환
-- 컴포넌트: Tailwind CSS + Headless UI (Modal, Select 등)
+### 2. 정산 자동화
+- Gmail에서 "Kakaotalk_Chat" 메일 자동 검색
+- ZIP 첨부파일 다운로드 및 TXT 파싱
+- 사진 4장 이상 → 인증, 미만 → 벌점
+- 생년→가나다 순 정렬 (2000년대생 대응)
+- 인증 날짜/시간 기록 (YY-MM-DD HH:MM)
 
-## 프로젝트 구조
-
-```
-corgi_check/
-  backend/
-    app/
-      main.py            # FastAPI 엔트리포인트
-      config.py          # 설정 (DB 경로, 시크릿 등)
-      models.py          # SQLAlchemy ORM 모델
-      database.py        # DB 연결 및 세션
-      routers/
-        auth.py          # 비밀번호 인증 API
-        status.py        # 인증 현황 API
-        history.py       # 과거 인증 내역 API
-        members.py       # 인원 관리 API
-        admin.py         # 관리자 메뉴 API
-      services/
-        gmail.py         # Gmail OAuth + 메일 파싱
-        settlement.py    # 정산 로직
-    requirements.txt
-  frontend/
-    src/
-      components/        # 공통 컴포넌트
-      pages/
-        StatusPage.tsx   # 인증 현황
-        HistoryPage.tsx  # 과거 인증 내역
-        MembersPage.tsx  # 인원 관리
-        AdminPage.tsx    # 관리자 메뉴
-      api/               # API 호출 함수
-      App.tsx
-      main.tsx
-    tailwind.config.js
-    package.json
-  corgi_check.db         # SQLite DB 파일
-```
+### 3. CSV Import
+- 구글 스프레드시트 직접 다운로드 (`gviz/tq?tqx=out:csv&sheet=26년`)
+- 멤버 및 주차별 상태 일괄 업데이트
 
 ## DB 스키마
 
-### members 테이블
-| 컬럼 | 타입 | 설명 |
-|------|------|------|
-| id | INTEGER PK | 고유 ID |
-| name | TEXT NOT NULL | 이름 |
-| birth_date | TEXT | 생년월일 (YYYY-MM-DD) |
-| is_active | BOOLEAN | 활동 여부 (기본 true) |
-| left_date | TEXT | 탈퇴 날짜 |
-| left_reason | TEXT | 탈퇴 사유 |
-| created_at | TEXT | 등록일 |
+### members
+- id, name, birth_date (YY or YYYY-MM-DD), is_active, left_date, left_reason
 
-### weekly_status 테이블
-| 컬럼 | 타입 | 설명 |
-|------|------|------|
-| id | INTEGER PK | 고유 ID |
-| member_id | INTEGER FK | members.id 참조 |
-| week_label | TEXT | 주차 라벨 (예: 2026-W05) |
-| status | TEXT | 인증 / 제외 / 벌금 |
-| exclude_reason | TEXT | 제외 사유 (질병, 여행, 출장, 부상, 수술, 직접쓰기) |
-| exclude_reason_detail | TEXT | 직접쓰기 상세 내용 |
-| created_at | TEXT | 생성일 |
+### weekly_status
+- id, member_id, week_label (ISO week: 2026-W05)
+- status (injeung/exclude/fine/penalty)
+- exclude_reason, exclude_reason_detail
+- certified_date (YY-MM-DD), certified_at (HH:MM)
 
-### weekly_summary 테이블
-| 컬럼 | 타입 | 설명 |
-|------|------|------|
-| id | INTEGER PK | 고유 ID |
-| week_label | TEXT UNIQUE | 주차 라벨 |
-| summary_text | TEXT | 생성된 안내 문구 |
-| created_at | TEXT | 생성일 |
+### weekly_summary
+- week_label (UNIQUE), summary_text
 
-### app_config 테이블
-| 컬럼 | 타입 | 설명 |
-|------|------|------|
-| key | TEXT PK | 설정 키 |
-| value | TEXT | 설정 값 |
+### app_config
+- key (admin_password, manager_name, gmail_token), value
 
-설정 키 목록: admin_password, manager_name, gmail_token 등
+## API 주요 엔드포인트
 
-## API 엔드포인트
+### Status
+- `GET /api/status/current?week_start=YYYY-MM-DD` → 주차별 상태 + exclude_end_label
+- `PUT /api/status/{id}` → 상태 변경 (consecutive_weeks 지원)
+- `GET /api/status/{id}/exclude-end` → 연속 제외 종료 주차
 
-### 인증
-- `POST /api/auth/login` - 비밀번호 확인
-- `GET /api/auth/check` - 비밀번호 설정 여부 확인
+### Admin
+- `POST /api/admin/settlement` → 정산 실행 (Gmail 파싱)
+- `POST /api/admin/mid-settlement` → 중간정산 (벌점 대상자)
+- `POST /api/admin/reset` → 전체 데이터 초기화
 
-### 인증 현황
-- `GET /api/status/current` - 현재 주차 멤버 상태 목록
-- `PUT /api/status/{member_id}` - 상태 변경
-
-### 과거 내역
-- `GET /api/history/weeks` - 주차 목록
-- `GET /api/history/{week_label}` - 특정 주차 상세
-
-### 인원 관리
-- `GET /api/members` - 멤버 목록 (쿼리: include_left)
-- `POST /api/members` - 멤버 추가
-- `PUT /api/members/{id}` - 멤버 수정
-- `PUT /api/members/{id}/leave` - 탈퇴 처리
-
-### 관리자
-- `POST /api/admin/password` - 비밀번호 설정/변경
-- `PUT /api/admin/manager` - 운영진 이름 설정
-- `POST /api/admin/gmail/connect` - Gmail OAuth 연결
-- `POST /api/admin/settlement` - 정산 실행
+### History
+- `GET /api/history/weeks` → 정산 완료 주차 목록
+- `GET /api/history/{week_label}` → 주차별 상세 (certified_date, certified_at 포함)
 
 ## 개발 명령어
 
@@ -145,11 +81,71 @@ uvicorn app.main:app --reload --port 8000
 cd frontend
 npm install
 npm run dev
+
+# DB 마이그레이션
+cd backend
+python migrate_add_certified_at.py
+
+# CSV Import
+cd backend
+python import_csv.py
 ```
 
-## 주요 설계 결정
+## 배포 가이드
 
-1. SQLite 사용: 소규모 모임 관리 앱이므로 경량 DB로 충분
-2. 세션 기반 인증: JWT 대신 브라우저 세션 스토리지 활용 (단순 비밀번호 방식)
-3. FastAPI: Python 기반으로 Gmail API 연동 및 텍스트 파싱에 유리
-4. React + Vite: 빠른 개발 및 빌드
+### Frontend (Vercel)
+- Build: `npm run build`
+- Output: `dist`
+- Environment Variables: `VITE_API_URL=https://your-backend.com`
+
+### Backend (Render / Railway)
+- Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Disk/Volume 마운트 필요 (SQLite DB 영구 저장)
+- 환경변수: `client_secret.json` 내용을 JSON 문자열로 설정
+- Gmail OAuth Redirect URI: `https://your-backend.com/api/admin/gmail/callback`
+
+## 주요 설계 원칙
+
+### 연속 제외 로직
+1. 저장: 주차 단위로만 상태 저장
+2. 조회: 서버가 연속 구간 계산 (`calc_exclude_end`)
+3. 사유: 주차별 보존, 절대 덮어쓰지 않음 (consecutive_weeks > 1일 때)
+4. 해제: 제외→인증/벌금 변경 시 이후 연속 구간 모두 해제
+
+### 정산 메시지 정렬
+- 2자리 생년을 4자리로 변환 (00-29 → 2000-2029, 30-99 → 1930-1999)
+- 생년 오름차순 → 가나다순
+
+### 인증 시간 추출
+- 정규식: `(\d{4})\. (\d{1,2})\. (\d{1,2})\. (\d{2}):(\d{2}), (.+?) : 사진 (\d+)장`
+- 마지막 인증 날짜/시간 저장 (status == "injeung"일 때만)
+
+## 파일 구조
+```
+backend/
+  app/
+    routers/status.py     # 연속 제외 로직
+    routers/admin.py      # 정산 및 정렬
+    services/chat_parser.py  # 카카오톡 파싱
+  import_csv.py           # 구글 시트 import
+  migrate_add_certified_at.py  # DB 마이그레이션
+frontend/
+  src/pages/
+    StatusPage.tsx        # 인증 현황
+    HistoryPage.tsx       # 과거 내역 (certified_date/at 표시)
+corgi_check.db            # SQLite DB
+```
+
+## 트러블슈팅
+
+### SQLite 컬럼 없음 에러
+→ `python migrate_add_certified_at.py` 실행
+
+### 구글 시트 다운로드 실패
+→ "링크가 있는 사용자에게 공개" 설정 확인
+
+### 정산 시 멤버 매칭 안 됨
+→ 닉네임 패턴 확인 (`extract_name_from_nickname` 함수)
+
+### 2000년대생 정렬 오류
+→ `sort_by_birth_name` 함수가 00-29를 2000-2029로 변환하는지 확인

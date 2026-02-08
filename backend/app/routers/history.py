@@ -46,6 +46,8 @@ def get_week_detail(week_label: str, db: Session = Depends(get_db)):
             "status": s.status,
             "exclude_reason": s.exclude_reason,
             "exclude_reason_detail": s.exclude_reason_detail,
+            "certified_date": s.certified_date,
+            "certified_at": s.certified_at,
         })
 
     return {

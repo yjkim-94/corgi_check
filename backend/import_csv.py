@@ -4,6 +4,8 @@ from datetime import datetime
 from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+import requests
+from io import StringIO
 
 # 현재 스크립트의 상위 디렉토리를 sys.path에 추가
 sys.path.insert(0, str(Path(__file__).parent))
@@ -72,27 +74,43 @@ def date_to_week_label(date_str):
         return None
 
 
+def download_google_sheet(sheet_id, sheet_name):
+    """구글 스프레드시트에서 특정 시트를 CSV로 다운로드"""
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={sheet_name}"
+    print(f"구글 스프레드시트 '{sheet_name}' 시트 다운로드 중...")
+
+    try:
+        response = requests.get(url)
+        response.encoding = 'utf-8'
+
+        if response.status_code == 200:
+            print("다운로드 성공")
+            return response.text
+        else:
+            print(f"다운로드 실패: HTTP {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"다운로드 오류: {e}")
+        return None
+
+
 def main():
-    csv_path = r"C:\Users\dydwl\Desktop\헬톡 인원 및 인증관리 - 26년.csv"
+    # 구글 스프레드시트 ID 및 시트 이름
+    sheet_id = "11UPzhx6mHOzFbz8pyU3gIuFDIf3A33PuOjIk5OiWa7U"
+    sheet_name = "26년"
 
-    print(f"CSV 파일 읽는 중: {csv_path}")
+    # 구글 시트 다운로드
+    csv_text = download_google_sheet(sheet_id, sheet_name)
 
-    # CSV 파일 읽기 (인코딩 시도)
-    encodings = ['utf-8-sig', 'cp949', 'euc-kr', 'utf-8']
-    rows = None
+    if not csv_text:
+        print("구글 스프레드시트를 다운로드할 수 없습니다.")
+        return
 
-    for encoding in encodings:
-        try:
-            with open(csv_path, 'r', encoding=encoding) as f:
-                reader = csv.reader(f)
-                rows = list(reader)
-            print(f"인코딩 성공: {encoding}")
-            break
-        except Exception as e:
-            continue
+    # CSV 파싱
+    rows = list(csv.reader(StringIO(csv_text)))
 
     if not rows:
-        print("CSV 파일을 읽을 수 없습니다.")
+        print("CSV 데이터가 비어있습니다.")
         return
 
     # 헤더 확인
@@ -111,6 +129,7 @@ def main():
     db = SessionLocal()
 
     try:
+
         # Members 및 WeeklyStatus 처리
         member_count = 0
         status_count = 0

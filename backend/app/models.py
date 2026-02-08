@@ -26,6 +26,8 @@ class WeeklyStatus(Base):
     status = Column(Text, default="injeung")
     exclude_reason = Column(Text)
     exclude_reason_detail = Column(Text)
+    certified_date = Column(Text)  # 인증 날짜 (YY-MM-DD 형식)
+    certified_at = Column(Text)  # 인증 시간 (HH:MM 형식)
     created_at = Column(Text)
 
     member = relationship("Member", back_populates="statuses")

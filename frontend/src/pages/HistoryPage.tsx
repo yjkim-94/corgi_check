@@ -235,6 +235,7 @@ export default function HistoryPage() {
                   <th className="text-left py-2 px-3">생년</th>
                   <th className="text-left py-2 px-3">상태</th>
                   <th className="text-left py-2 px-3">비고</th>
+                  <th className="text-left py-2 px-3">인증시간</th>
                 </tr>
               </thead>
               <tbody>
@@ -246,6 +247,9 @@ export default function HistoryPage() {
                     <td className="py-2 px-3 text-gray-500 text-sm">
                       {m.exclude_reason ? EXCLUDE_LABELS[m.exclude_reason] || m.exclude_reason : '-'}
                       {m.exclude_reason_detail ? ` (${m.exclude_reason_detail})` : ''}
+                    </td>
+                    <td className="py-2 px-3 text-gray-500 text-sm">
+                      {m.certified_date && m.certified_at ? `${m.certified_date} ${m.certified_at}` : '-'}
                     </td>
                   </tr>
                 ))}
@@ -266,6 +270,11 @@ export default function HistoryPage() {
                   <p className="text-xs text-gray-400 mt-1">
                     비고: {EXCLUDE_LABELS[m.exclude_reason] || m.exclude_reason}
                     {m.exclude_reason_detail ? ` (${m.exclude_reason_detail})` : ''}
+                  </p>
+                )}
+                {m.certified_date && m.certified_at && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    인증시간: {m.certified_date} {m.certified_at}
                   </p>
                 )}
               </div>

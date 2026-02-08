@@ -28,13 +28,17 @@ def parse_chat(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
 ) -> dict:
-    """txt 파싱하여 인원별 사진 수 집계."""
-    photo_counts = {}
+    """txt 파싱하여 인원별 사진 수 및 마지막 인증 날짜/시간 집계.
+
+    Returns:
+        dict: {nickname: {"count": int, "last_date": str, "last_time": str}}
+    """
+    photo_data = {}
     date_header_pattern = re.compile(
         r"(\d{4})년 (\d{1,2})월 (\d{1,2})일"
     )
     line_pattern = re.compile(
-        r"(\d{4})\. (\d{1,2})\. (\d{1,2})\. \d{2}:\d{2}, (.+?) : 사진 (\d+)장"
+        r"(\d{4})\. (\d{1,2})\. (\d{1,2})\. (\d{2}):(\d{2}), (.+?) : 사진 (\d+)장"
     )
 
     for line in text.splitlines():
@@ -50,16 +54,28 @@ def parse_chat(
                 continue
             if end_date and line_date > end_date:
                 continue
-            nickname = match.group(4).strip()
+
+            # 날짜 형식: YY-MM-DD
+            date_str = f"{y % 100:02d}-{m:02d}-{d:02d}"
+            hour = match.group(4)
+            minute = match.group(5)
+            time_str = f"{hour}:{minute}"
+            nickname = match.group(6).strip()
 
             # 닉네임 매핑
             if nickname == ".":
                 nickname = "94김용진"
 
-            count = int(match.group(5))
-            photo_counts[nickname] = photo_counts.get(nickname, 0) + count
+            count = int(match.group(7))
 
-    return photo_counts
+            if nickname not in photo_data:
+                photo_data[nickname] = {"count": 0, "last_date": date_str, "last_time": time_str}
+
+            photo_data[nickname]["count"] += count
+            photo_data[nickname]["last_date"] = date_str  # 마지막 인증 날짜로 업데이트
+            photo_data[nickname]["last_time"] = time_str  # 마지막 인증 시간으로 업데이트
+
+    return photo_data
 
 
 def extract_name_from_nickname(nickname: str) -> str:
@@ -103,8 +119,9 @@ def get_birth_prefix_from_date(birth_date: str) -> str:
     return ""
 
 
-def build_result(photo_counts: dict, members: list, weekly_statuses: dict = None) -> list:
+def build_result(photo_data: dict, members: list, weekly_statuses: dict = None) -> list:
     """DB 멤버와 매칭하여 인증 결과 생성.
+    photo_data: {nickname: {"count": int, "last_date": str, "last_time": str}}
     weekly_statuses: {member_id: WeeklyStatus} - 제외/벌금 상태 참조용
     """
     if weekly_statuses is None:
@@ -117,7 +134,11 @@ def build_result(photo_counts: dict, members: list, weekly_statuses: dict = None
     results = []
     matched_member_ids = set()
 
-    for nickname, count in photo_counts.items():
+    for nickname, data in photo_data.items():
+        count = data["count"]
+        last_date = data.get("last_date", "")
+        last_time = data.get("last_time", "")
+
         name = extract_name_from_nickname(nickname)
         birth_prefix = extract_birth_prefix(nickname)
         member = member_name_map.get(name)
@@ -133,6 +154,8 @@ def build_result(photo_counts: dict, members: list, weekly_statuses: dict = None
 
         # 상태 결정 로직
         is_exclude_but_certified = False
+        certified_date = None
+        certified_at = None
         if ws and ws.status == "exclude":
             status = "exclude"
             exclude_reason = ws.exclude_reason
@@ -149,6 +172,8 @@ def build_result(photo_counts: dict, members: list, weekly_statuses: dict = None
             status = "injeung"
             exclude_reason = None
             exclude_reason_detail = None
+            certified_date = last_date  # 인증 성공 시 날짜 저장
+            certified_at = last_time  # 인증 성공 시 시간 저장
         else:
             # 사진 부족 (벌점 대상)
             status = "penalty"
@@ -163,6 +188,8 @@ def build_result(photo_counts: dict, members: list, weekly_statuses: dict = None
             "status": status,
             "exclude_reason": exclude_reason,
             "exclude_reason_detail": exclude_reason_detail,
+            "certified_date": certified_date,
+            "certified_at": certified_at,
             "member_id": member.id if member else None,
             "is_exclude_but_certified": is_exclude_but_certified,
         }
@@ -199,6 +226,8 @@ def build_result(photo_counts: dict, members: list, weekly_statuses: dict = None
                 "status": status,
                 "exclude_reason": exclude_reason,
                 "exclude_reason_detail": exclude_reason_detail,
+                "certified_date": None,
+                "certified_at": None,
                 "member_id": member.id,
                 "is_exclude_but_certified": False,
             })

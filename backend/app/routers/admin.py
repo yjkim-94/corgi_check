@@ -155,6 +155,8 @@ def run_settlement(body: SettlementRequest, db: Session = Depends(get_db)):
                 existing_ws.status = result["status"]
                 existing_ws.exclude_reason = result["exclude_reason"]
                 existing_ws.exclude_reason_detail = result["exclude_reason_detail"]
+                existing_ws.certified_date = result.get("certified_date")
+                existing_ws.certified_at = result.get("certified_at")
         else:
             # 새로운 데이터 생성
             new_ws = WeeklyStatus(
@@ -163,6 +165,8 @@ def run_settlement(body: SettlementRequest, db: Session = Depends(get_db)):
                 status=result["status"],
                 exclude_reason=result["exclude_reason"],
                 exclude_reason_detail=result["exclude_reason_detail"],
+                certified_date=result.get("certified_date"),
+                certified_at=result.get("certified_at"),
                 created_at=now_iso
             )
             db.add(new_ws)
@@ -309,7 +313,24 @@ def run_mid_settlement(body: SettlementRequest, db: Session = Depends(get_db)):
 
     # 중간정산은 벌점 대상자만 포함 (벌금은 이미 납부했으므로 제외)
     penalty_members = [r for r in results if r["status"] == "penalty"]
-    names = [r["birth_prefix"] + r["name"] for r in penalty_members]
+
+    # 생년→가나다 순 정렬 함수 (2000년대생 고려)
+    def sort_by_birth_name(lst):
+        def birth_sort_key(birth_prefix):
+            # 빈 값 처리
+            if not birth_prefix:
+                return (9999, "")
+            # 2자리 숫자를 4자리로 변환 (00-29 → 2000-2029, 30-99 → 1930-1999)
+            year_2digit = int(birth_prefix)
+            if year_2digit <= 29:
+                return (2000 + year_2digit, birth_prefix)
+            else:
+                return (1900 + year_2digit, birth_prefix)
+
+        return sorted(lst, key=lambda r: (birth_sort_key(r["birth_prefix"])[0], r["name"]))
+
+    sorted_penalty = sort_by_birth_name(penalty_members)
+    names = [r["birth_prefix"] + r["name"] for r in sorted_penalty]
 
     lines = []
     lines.append("[알림] 태그되신 분들은 현재 시간 기준 아직 인증이 되지 않았거나 벌금을 납부하지 않은 것으로 확인 됩니다. 오늘 자정까지 늦지 않게 인증 또는 증빙 또는 벌금 납부 해주시기 바랍니다 ~")
