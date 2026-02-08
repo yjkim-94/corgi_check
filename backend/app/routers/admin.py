@@ -241,7 +241,11 @@ def _build_summary(results: list, start: date, end: date, manager_name: str) -> 
         names = []
         for r in sorted_exclude:
             label = r["birth_prefix"] + r["name"]
-            reason = EXCLUDE_LABELS.get(r["exclude_reason"], r.get("exclude_reason_detail") or "")
+            # custom인 경우 상세 내용 표시, 아니면 매핑된 라벨 사용
+            if r["exclude_reason"] == "custom":
+                reason = r.get("exclude_reason_detail") or "기타"
+            else:
+                reason = EXCLUDE_LABELS.get(r["exclude_reason"], "")
             if reason:
                 label += f"({reason})"
             names.append(label)
