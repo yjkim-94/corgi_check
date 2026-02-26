@@ -97,6 +97,13 @@ def gmail_status(db: Session = Depends(get_db)):
     return {"connected": connected}
 
 
+@router.post("/gmail/disconnect")
+def gmail_disconnect(db: Session = Depends(get_db)):
+    """Gmail 연결 해제 (토큰 삭제)"""
+    set_config(db, "gmail_token", "")
+    return {"success": True, "message": "Gmail disconnected"}
+
+
 @router.post("/settlement")
 def run_settlement(body: SettlementRequest, db: Session = Depends(get_db)):
     if not gmail.is_connected(db):

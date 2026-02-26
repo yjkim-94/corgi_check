@@ -6,6 +6,7 @@ const navItems = [
   { to: '/status', label: '인증 현황' },
   { to: '/history', label: '과거 내역' },
   { to: '/members', label: '인원 관리' },
+  { to: '/lottery', label: '추첨' },
   { to: '/admin', label: '관리자' },
 ];
 

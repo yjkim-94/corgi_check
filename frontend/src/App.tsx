@@ -5,6 +5,7 @@ import HomePage from './pages/HomePage';
 import StatusPage from './pages/StatusPage';
 import HistoryPage from './pages/HistoryPage';
 import MembersPage from './pages/MembersPage';
+import LotteryPage from './pages/LotteryPage';
 import AdminPage from './pages/AdminPage';
 
 export default function App() {
@@ -17,6 +18,7 @@ export default function App() {
             <Route path="/status" element={<StatusPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/members" element={<MembersPage />} />
+            <Route path="/lottery" element={<LotteryPage />} />
             <Route path="/admin" element={<AdminPage />} />
           </Route>
         </Routes>

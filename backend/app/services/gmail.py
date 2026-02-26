@@ -72,52 +72,141 @@ def _get_credentials(db: Session):
         client_secret=token_data["client_secret"],
         scopes=token_data.get("scopes"),
     )
+
+    # 토큰 만료 시 자동 갱신 시도
     if creds.expired and creds.refresh_token:
         from google.auth.transport.requests import Request
-        creds.refresh(Request())
-        token_data["token"] = creds.token
-        _set_config(db, "gmail_token", json.dumps(token_data))
+        from google.auth.exceptions import RefreshError
+        try:
+            print("Access token expired. Attempting to refresh...")
+            creds.refresh(Request())
+            # 갱신 성공 시 새 토큰 저장
+            token_data["token"] = creds.token
+            _set_config(db, "gmail_token", json.dumps(token_data))
+            print("Token refreshed successfully.")
+        except RefreshError as e:
+            # Refresh token이 만료되거나 취소된 경우
+            print(f"Failed to refresh token: {e}")
+            print("Refresh token has expired or been revoked. Clearing stored token.")
+            # 저장된 토큰 삭제 (재인증 필요)
+            _set_config(db, "gmail_token", "")
+            return None
+
     return creds
 
 
 def is_connected(db: Session) -> bool:
-    return _get_config(db, "gmail_token") is not None
+    token = _get_config(db, "gmail_token")
+    return token is not None and token != ""
 
 
 def find_latest_chat_mail(db: Session):
+    from google.auth.exceptions import RefreshError
+    from googleapiclient.errors import HttpError
+
+    print("=== find_latest_chat_mail START ===")
     creds = _get_credentials(db)
     if not creds:
+        print("ERROR: No credentials available")
         return None
-    service = build("gmail", "v1", credentials=creds)
-    results = service.users().messages().list(
-        userId="me", q='subject:"Kakaotalk_Chat"', maxResults=1
-    ).execute()
-    messages = results.get("messages", [])
-    if not messages:
+
+    print(f"Credentials loaded: token={creds.token[:20] if creds.token else 'None'}..., refresh_token={'exists' if creds.refresh_token else 'None'}")
+    print(f"Token expired: {creds.expired}, Valid: {creds.valid}")
+
+    try:
+        print("Building Gmail service...")
+        service = build("gmail", "v1", credentials=creds)
+
+        print("Searching for emails with subject:Kakaotalk_Chat")
+        results = service.users().messages().list(
+            userId="me", q='subject:"Kakaotalk_Chat"', maxResults=1
+        ).execute()
+
+        messages = results.get("messages", [])
+        print(f"Found {len(messages)} messages")
+
+        if not messages:
+            print("No messages found. Trying broader search...")
+            # 더 넓은 검색 시도
+            results2 = service.users().messages().list(
+                userId="me", q='subject:Kakaotalk OR subject:KakaoTalk', maxResults=5
+            ).execute()
+            messages2 = results2.get("messages", [])
+            print(f"Broader search found {len(messages2)} messages")
+
+            if messages2:
+                print("Found messages with broader search. Returning first one.")
+                msg_id = messages2[0]["id"]
+                message = service.users().messages().get(
+                    userId="me", id=msg_id, format="full"
+                ).execute()
+                # 제목 출력
+                headers = message.get("payload", {}).get("headers", [])
+                subject = next((h["value"] for h in headers if h["name"].lower() == "subject"), "Unknown")
+                print(f"Email subject: {subject}")
+                return message
+
+            return None
+
+        msg_id = messages[0]["id"]
+        print(f"Getting message {msg_id}...")
+        message = service.users().messages().get(
+            userId="me", id=msg_id, format="full"
+        ).execute()
+
+        # 제목 출력
+        headers = message.get("payload", {}).get("headers", [])
+        subject = next((h["value"] for h in headers if h["name"].lower() == "subject"), "Unknown")
+        print(f"Email subject: {subject}")
+        print("=== find_latest_chat_mail SUCCESS ===")
+        return message
+
+    except (RefreshError, HttpError) as e:
+        print(f"Gmail API error: {e}")
+        print(f"Error type: {type(e)}")
+        # 인증 에러인 경우 토큰 삭제
+        if isinstance(e, RefreshError) or (isinstance(e, HttpError) and e.resp.status == 401):
+            print("Authentication failed. Clearing stored token.")
+            _set_config(db, "gmail_token", "")
         return None
-    msg_id = messages[0]["id"]
-    message = service.users().messages().get(
-        userId="me", id=msg_id, format="full"
-    ).execute()
-    return message
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        print(f"Error type: {type(e)}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 
 def download_attachment(db: Session, message) -> str:
+    from google.auth.exceptions import RefreshError
+    from googleapiclient.errors import HttpError
+
     creds = _get_credentials(db)
-    service = build("gmail", "v1", credentials=creds)
-    parts = message.get("payload", {}).get("parts", [])
-    for part in parts:
-        filename = part.get("filename", "")
-        if filename.endswith(".zip"):
-            att_id = part["body"].get("attachmentId")
-            if att_id:
-                att = service.users().messages().attachments().get(
-                    userId="me", messageId=message["id"], id=att_id
-                ).execute()
-                data = base64.urlsafe_b64decode(att["data"])
-                tmp_dir = tempfile.mkdtemp()
-                zip_path = os.path.join(tmp_dir, filename)
-                with open(zip_path, "wb") as f:
-                    f.write(data)
-                return zip_path
-    return ""
+    if not creds:
+        return ""
+
+    try:
+        service = build("gmail", "v1", credentials=creds)
+        parts = message.get("payload", {}).get("parts", [])
+        for part in parts:
+            filename = part.get("filename", "")
+            if filename.endswith(".zip"):
+                att_id = part["body"].get("attachmentId")
+                if att_id:
+                    att = service.users().messages().attachments().get(
+                        userId="me", messageId=message["id"], id=att_id
+                    ).execute()
+                    data = base64.urlsafe_b64decode(att["data"])
+                    tmp_dir = tempfile.mkdtemp()
+                    zip_path = os.path.join(tmp_dir, filename)
+                    with open(zip_path, "wb") as f:
+                        f.write(data)
+                    return zip_path
+        return ""
+    except (RefreshError, HttpError) as e:
+        print(f"Gmail API error: {e}")
+        # 인증 에러인 경우 토큰 삭제
+        if isinstance(e, RefreshError) or (isinstance(e, HttpError) and e.resp.status == 401):
+            print("Authentication failed. Clearing stored token.")
+            _set_config(db, "gmail_token", "")
+        return ""
