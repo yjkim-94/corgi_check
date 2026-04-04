@@ -164,6 +164,9 @@ def run_settlement(body: SettlementRequest, db: Session = Depends(get_db)):
                 existing_ws.exclude_reason_detail = result["exclude_reason_detail"]
                 existing_ws.certified_date = result.get("certified_date")
                 existing_ws.certified_at = result.get("certified_at")
+                existing_ws.is_exclude_but_certified = False
+            else:
+                existing_ws.is_exclude_but_certified = result.get("is_exclude_but_certified", False)
         else:
             # 새로운 데이터 생성
             new_ws = WeeklyStatus(
@@ -174,6 +177,7 @@ def run_settlement(body: SettlementRequest, db: Session = Depends(get_db)):
                 exclude_reason_detail=result["exclude_reason_detail"],
                 certified_date=result.get("certified_date"),
                 certified_at=result.get("certified_at"),
+                is_exclude_but_certified=result.get("is_exclude_but_certified", False),
                 created_at=now_iso
             )
             db.add(new_ws)

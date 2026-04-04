@@ -40,6 +40,7 @@ export const api = {
   },
   history: {
     weeks: () => request<string[]>('/history/weeks'),
+    statusWeeks: () => request<string[]>('/history/status-weeks'),
     detail: (week: string) => request<any>('/history/' + week),
   },
   members: {

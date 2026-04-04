@@ -16,6 +16,17 @@ def get_weeks(db: Session = Depends(get_db)):
     return [r[0] for r in rows]
 
 
+@router.get("/status-weeks")
+def get_status_weeks(db: Session = Depends(get_db)):
+    rows = (
+        db.query(WeeklyStatus.week_label)
+        .distinct()
+        .order_by(WeeklyStatus.week_label.desc())
+        .all()
+    )
+    return [r[0] for r in rows]
+
+
 @router.get("/{week_label}")
 def get_week_detail(week_label: str, db: Session = Depends(get_db)):
     summary = (
@@ -23,7 +34,7 @@ def get_week_detail(week_label: str, db: Session = Depends(get_db)):
         .filter(WeeklySummary.week_label == week_label)
         .first()
     )
-    if not summary:
+    if not summary and not db.query(WeeklyStatus).filter(WeeklyStatus.week_label == week_label).first():
         raise HTTPException(status_code=404, detail="week_not_found")
 
     statuses = (
@@ -43,15 +54,17 @@ def get_week_detail(week_label: str, db: Session = Depends(get_db)):
         data.append({
             "name": m.name if m else "unknown",
             "birth_date": m.birth_date if m else None,
+            "is_active": m.is_active if m else False,
             "status": s.status,
             "exclude_reason": s.exclude_reason,
             "exclude_reason_detail": s.exclude_reason_detail,
             "certified_date": s.certified_date,
             "certified_at": s.certified_at,
+            "is_exclude_but_certified": s.is_exclude_but_certified or False,
         })
 
     return {
         "week_label": week_label,
-        "summary_text": summary.summary_text,
+        "summary_text": summary.summary_text if summary else None,
         "members": data,
     }

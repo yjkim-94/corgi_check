@@ -28,6 +28,7 @@ class WeeklyStatus(Base):
     exclude_reason_detail = Column(Text)
     certified_date = Column(Text)  # 인증 날짜 (YY-MM-DD 형식)
     certified_at = Column(Text)  # 인증 시간 (HH:MM 형식)
+    is_exclude_but_certified = Column(Boolean, default=False)  # 제외됐지만 인증한 경우
     created_at = Column(Text)
 
     member = relationship("Member", back_populates="statuses")
